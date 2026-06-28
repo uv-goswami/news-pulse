@@ -1,0 +1,109 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================
+// CORE TABLES – Required for News Pulse
+// ============================================================
+
+model IngestJob {
+  id                String    @id @default(uuid())
+  status            String    @default("pending")
+  triggeredBy       String    @map("triggered_by")
+  triggeredAt       DateTime  @default(now()) @map("triggered_at")
+  startedAt         DateTime? @map("started_at")
+  finishedAt        DateTime? @map("finished_at")
+  articlesFetched   Int?      @map("articles_fetched")
+  clustersGenerated Int?      @map("clusters_generated")
+  errorMessage      String?   @map("error_message")
+  clusters          Cluster[]
+
+  @@index([status])
+  @@map("ingest_jobs")
+}
+
+model Cluster {
+  id                 String    @id @default(uuid())
+  label              String
+  topTerms           Json      @default("[]") @map("top_terms")
+  articleCount       Int       @default(0) @map("article_count")
+  earliestArticleAt  DateTime? @map("earliest_article_at")
+  latestArticleAt    DateTime? @map("latest_article_at")
+  ingestJobId        String?   @map("ingest_job_id")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  ingestJob          IngestJob? @relation(fields: [ingestJobId], references: [id], onDelete: SetNull)
+  articles           Article[]
+
+  @@index([label])
+  @@index([latestArticleAt(sort: Desc)])
+  @@index([earliestArticleAt])
+  @@index([ingestJobId])
+  @@map("clusters")
+}
+
+model Article {
+  id          String    @id @default(uuid())
+  clusterId   String?   @map("cluster_id")
+  url         String    @unique
+  urlHash     String    @unique @map("url_hash")
+  headline    String
+  summary     String?
+  bodyText    String?   @map("body_text")
+  sourceName  String    @map("source_name")
+  sourceUrl   String    @map("source_url")
+  publishedAt DateTime  @map("published_at")
+  fetchedAt   DateTime  @default(now()) @map("fetched_at")
+  cluster     Cluster?  @relation(fields: [clusterId], references: [id], onDelete: SetNull)
+
+  @@index([clusterId])
+  @@index([publishedAt(sort: Desc)])
+  @@index([sourceName])
+  @@index([fetchedAt(sort: Desc)])
+  @@map("articles")
+}
+
+// ============================================================
+// OPTIONAL AUTH TABLES – Add only if JWT authentication is enabled
+// The assessment does not require authentication.
+// These tables can be safely ignored or removed.
+// ============================================================
+
+model User {
+  id           String         @id @default(uuid())
+  email        String         @unique
+  passwordHash String         @map("password_hash")
+  role         String         @default("viewer")
+  createdAt    DateTime       @default(now()) @map("created_at")
+  lastLoginAt  DateTime?      @map("last_login_at")
+  refreshTokens RefreshToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id          String    @id @default(uuid())
+  tokenHash   String    @unique @map("token_hash")
+  userId      String    @map("user_id")
+  family      String
+  isUsed      Boolean   @default(false) @map("is_used")
+  expiresAt   DateTime  @map("expires_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  revokedAt   DateTime? @map("revoked_at")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([family])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
