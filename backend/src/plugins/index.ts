@@ -12,6 +12,7 @@ export async function registerPlugins(app: FastifyInstance) {
   await app.register(fastifyCors, {
     origin: [
       'http://localhost:3000',
+      'http://192.168.83.219:3000',
       process.env.FRONTEND_URL,
     ].filter(Boolean) as string[],
     credentials: true,
