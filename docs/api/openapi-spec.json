@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "News Pulse API",
-    "description": "REST API for News Pulse – a topic-clustered news timeline system.\n\nPulls articles from RSS feeds, groups them into topic clusters using TF-IDF,\nand serves the results for timeline visualization.\n\nAuthentication is optional – the assessment does not require it. We added JWT Bearer\ntokens to protect the ingest endpoint from public abuse. If you skip auth, remove\nthe security requirements from the spec and the backend guards.\n\nRate limiting is also applied to prevent abuse.",
+    "description": "REST API for News Pulse – a topic-clustered news timeline system.\n\nPulls articles from RSS feeds, groups them into topic clusters using TF-IDF,\nand serves the results for timeline visualization.\n\nNo authentication is required. All endpoints are public.\n\nRate limiting: global 100 requests per minute.",
     "version": "1.0.0",
     "contact": {
       "name": "News Pulse",
@@ -20,21 +20,12 @@
     }
   ],
   "tags": [
-    { "name": "auth", "description": "Authentication (optional) – login, token refresh, logout" },
     { "name": "clusters", "description": "Topic cluster read endpoints" },
     { "name": "timeline", "description": "Timeline visualization data" },
     { "name": "ingest", "description": "Scraper pipeline control and status" },
     { "name": "health", "description": "API liveness and readiness checks" }
   ],
   "components": {
-    "securitySchemes": {
-      "BearerAuth": {
-        "type": "http",
-        "scheme": "bearer",
-        "bearerFormat": "JWT",
-        "description": "Optional access token obtained from POST /auth/login or POST /auth/refresh. TTL: 15 minutes. Not required for the core assessment."
-      }
-    },
     "schemas": {
       "ErrorResponse": {
         "type": "object",
@@ -85,39 +76,6 @@
           "limit": { "type": "integer", "example": 20 },
           "total": { "type": "integer", "example": 43 },
           "totalPages": { "type": "integer", "example": 3 }
-        }
-      },
-      "LoginRequest": {
-        "type": "object",
-        "required": ["email", "password"],
-        "properties": {
-          "email": { "type": "string", "format": "email", "example": "admin@newspulse.com" },
-          "password": { "type": "string", "minLength": 8, "maxLength": 128, "example": "s3cure-p@ssword" }
-        }
-      },
-      "LoginResponse": {
-        "type": "object",
-        "required": ["accessToken", "expiresIn", "user"],
-        "properties": {
-          "accessToken": { "type": "string", "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." },
-          "expiresIn": { "type": "integer", "example": 900 },
-          "user": {
-            "type": "object",
-            "required": ["id", "email", "role"],
-            "properties": {
-              "id": { "type": "string", "format": "uuid", "example": "a3f2c1d4-9f8d-4b2a-a1c3-9f8d4b2aa1c3" },
-              "email": { "type": "string", "example": "admin@newspulse.com" },
-              "role": { "type": "string", "enum": ["admin", "viewer"], "example": "admin" }
-            }
-          }
-        }
-      },
-      "RefreshResponse": {
-        "type": "object",
-        "required": ["accessToken", "expiresIn"],
-        "properties": {
-          "accessToken": { "type": "string", "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." },
-          "expiresIn": { "type": "integer", "example": 900 }
         }
       },
       "Article": {
@@ -228,36 +186,6 @@
       }
     },
     "responses": {
-      "Unauthorized": {
-        "description": "Missing or invalid access token (only if auth enabled)",
-        "content": {
-          "application/json": {
-            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
-            "example": {
-              "error": {
-                "code": "UNAUTHORIZED",
-                "message": "Authorization token is missing or invalid",
-                "statusCode": 401
-              }
-            }
-          }
-        }
-      },
-      "Forbidden": {
-        "description": "Valid token but insufficient role (only if auth enabled)",
-        "content": {
-          "application/json": {
-            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
-            "example": {
-              "error": {
-                "code": "FORBIDDEN",
-                "message": "Admin role required for this action",
-                "statusCode": 403
-              }
-            }
-          }
-        }
-      },
       "NotFound": {
         "description": "Resource not found",
         "content": {
@@ -333,153 +261,6 @@
     }
   },
   "paths": {
-    "/auth/login": {
-      "post": {
-        "tags": ["auth"],
-        "summary": "Log in and obtain tokens (optional)",
-        "description": "Authenticate with email/password. Returns access token and sets httpOnly refresh cookie. Only needed if you enable JWT authentication.",
-        "operationId": "login",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": { "$ref": "#/components/schemas/LoginRequest" }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Login successful",
-            "headers": {
-              "Set-Cookie": {
-                "schema": {
-                  "type": "string",
-                  "example": "refreshToken=<token>; HttpOnly; Secure; SameSite=Strict; Path=/auth/refresh; Max-Age=604800"
-                }
-              }
-            },
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/LoginResponse" }
-              }
-            }
-          },
-          "400": { "$ref": "#/components/responses/ValidationError" },
-          "401": {
-            "description": "Invalid credentials",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorResponse" },
-                "example": {
-                  "error": {
-                    "code": "INVALID_CREDENTIALS",
-                    "message": "Email or password is incorrect",
-                    "statusCode": 401
-                  }
-                }
-              }
-            }
-          },
-          "429": { "$ref": "#/components/responses/RateLimited" }
-        }
-      }
-    },
-    "/auth/refresh": {
-      "post": {
-        "tags": ["auth"],
-        "summary": "Refresh access token (optional)",
-        "description": "Use httpOnly refresh token cookie to get a new access token. Rotates the refresh token.",
-        "operationId": "refreshToken",
-        "parameters": [
-          {
-            "in": "cookie",
-            "name": "refreshToken",
-            "required": true,
-            "schema": { "type": "string" }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "New access token issued",
-            "headers": {
-              "Set-Cookie": {
-                "schema": {
-                  "type": "string",
-                  "example": "refreshToken=<new_token>; HttpOnly; Secure; SameSite=Strict; Path=/auth/refresh; Max-Age=604800"
-                }
-              }
-            },
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/RefreshResponse" }
-              }
-            }
-          },
-          "401": {
-            "description": "Refresh token missing, invalid, expired, or replayed",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/ErrorResponse" },
-                "examples": {
-                  "missing": {
-                    "value": {
-                      "error": {
-                        "code": "REFRESH_TOKEN_MISSING",
-                        "message": "No refresh token cookie found",
-                        "statusCode": 401
-                      }
-                    }
-                  },
-                  "reused": {
-                    "value": {
-                      "error": {
-                        "code": "REFRESH_TOKEN_REUSED",
-                        "message": "Token reuse detected. All sessions have been invalidated.",
-                        "statusCode": 401
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "429": { "$ref": "#/components/responses/RateLimited" }
-        }
-      }
-    },
-    "/auth/logout": {
-      "post": {
-        "tags": ["auth"],
-        "summary": "Log out (optional)",
-        "description": "Invalidates refresh token and clears cookie. Requires access token.",
-        "operationId": "logout",
-        "security": [{ "BearerAuth": [] }],
-        "responses": {
-          "200": {
-            "description": "Logged out successfully",
-            "headers": {
-              "Set-Cookie": {
-                "schema": {
-                  "type": "string",
-                  "example": "refreshToken=; HttpOnly; Secure; SameSite=Strict; Path=/auth/refresh; Max-Age=0"
-                }
-              }
-            },
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "message": { "type": "string", "example": "Logged out successfully" }
-                  }
-                }
-              }
-            }
-          },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
-        }
-      }
-    },
     "/clusters": {
       "get": {
         "tags": ["clusters"],
@@ -603,9 +384,8 @@
       "post": {
         "tags": ["ingest"],
         "summary": "Trigger scrape + cluster pipeline",
-        "description": "Creates a new ingest job and returns 202 Accepted immediately. The Python scraper runs asynchronously. Poll /ingest/status/:jobId to track progress. Only one job may run at a time.\n\n**Auth:** Optional – if enabled, requires admin role. Remove the security requirement if not needed.",
+        "description": "Creates a new ingest job and returns 202 Accepted immediately. The Python scraper runs asynchronously. Poll /ingest/status/:jobId to track progress. Only one job may run at a time.\n\nPublic endpoint – no authentication required.",
         "operationId": "triggerIngest",
-        "security": [{ "BearerAuth": [] }],
         "responses": {
           "202": {
             "description": "Ingest job accepted and queued",
@@ -615,8 +395,6 @@
               }
             }
           },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
-          "403": { "$ref": "#/components/responses/Forbidden" },
           "409": {
             "description": "An ingest job is already running",
             "content": {
@@ -642,7 +420,6 @@
         "summary": "Poll ingest job status",
         "description": "Returns the current status of an ingest job. Poll every 3-5 seconds until status is completed or failed.",
         "operationId": "getIngestStatus",
-        "security": [{ "BearerAuth": [] }],
         "parameters": [
           {
             "name": "jobId",
@@ -662,46 +439,7 @@
             }
           },
           "400": { "$ref": "#/components/responses/ValidationError" },
-          "401": { "$ref": "#/components/responses/Unauthorized" },
           "404": { "$ref": "#/components/responses/NotFound" }
-        }
-      }
-    },
-    "/ingest/history": {
-      "get": {
-        "tags": ["ingest"],
-        "summary": "List recent ingest jobs",
-        "description": "Returns paginated history of ingest jobs. Useful for admin visibility.",
-        "operationId": "listIngestHistory",
-        "security": [{ "BearerAuth": [] }],
-        "parameters": [
-          { "$ref": "#/components/parameters/PageParam" },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": { "type": "integer", "minimum": 1, "maximum": 50, "default": 10 }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Ingest job history",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "required": ["data", "meta"],
-                  "properties": {
-                    "data": {
-                      "type": "array",
-                      "items": { "$ref": "#/components/schemas/IngestJobStatus" }
-                    },
-                    "meta": { "$ref": "#/components/schemas/PaginationMeta" }
-                  }
-                }
-              }
-            }
-          },
-          "401": { "$ref": "#/components/responses/Unauthorized" }
         }
       }
     },

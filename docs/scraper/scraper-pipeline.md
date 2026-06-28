@@ -1,3 +1,4 @@
+
 # Scraper Pipeline — News Pulse
 
 This document describes the internal workflow of the Python scraper, from fetching RSS feeds to writing clusters back to the database. All processing happens in a single run‑and‑exit process, triggered either by the API (`POST /ingest/trigger`) or by a scheduled cron job.
@@ -54,11 +55,12 @@ We compute `url_hash = SHA‑256(url)` and check the `articles` table for an exi
 
 We use `trafilatura` to fetch and extract the main body text from the article’s web page.
 
-- **Timeout:** 10 seconds per request.
+- **Timeout:** 10 seconds per request (configurable via `ARTICLE_FETCH_TIMEOUT`).
 - **Retry:** One retry on failure.
 - **Fallback:** If extraction fails (network error, parse error, or no content), we set `body_text = null` and continue – the pipeline does not crash.
-- **SSRF protection:** Only `http` and `https` URLs are allowed; we do not follow redirects to `file://` or internal IP ranges.
 - **HTML sanitisation:** All extracted content is stripped of HTML tags before storage. We store only plain text.
+
+**RSS Feed Fetch Timeout:** The `feedparser.parse()` function does not accept a `timeout` parameter in the version we use (6.0.10). To prevent indefinite hangs, we set a global socket timeout (`socket.setdefaulttimeout(30)`) before calling `parse()`. This is restored after each feed fetch.
 
 ---
 
@@ -80,9 +82,9 @@ We do **not** merge incrementally – a full re‑clustering is simpler and more
 
 | Concern | Mitigation |
 |---------|------------|
-| **SSRF** | Only allow `http`/`https` schemes; validate URL host against a blocklist (localhost, private IPs) before fetching. |
+| **SSRF** | Not explicitly blocked in this version. The scraper fetches only configured RSS feed URLs and article links from those feeds. All URLs are validated to be `http` or `https` by `httpx`. |
 | **HTML injection** | All extracted text is sanitised – HTML tags are removed before storage. |
-| **Timeouts** | Each HTTP request (feed and article page) has a 10‑second timeout; if exceeded, the article is skipped. |
+| **Timeouts** | Each HTTP request (feed and article page) has a 10‑second timeout; if exceeded, the article is skipped. Feed fetching uses a 30‑second socket timeout. |
 | **Resource exhaustion** | We limit the number of articles fetched per feed (50 per run) and cap the total articles processed in memory. |
 | **Subprocess arguments** | The Python script receives no user input; all configuration comes from environment variables. |
 

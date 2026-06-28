@@ -1,8 +1,9 @@
+
 # Frontend Design — News Pulse
 
 > **Framework:** Next.js 14 (App Router)  
 > **UI Library:** React + Tailwind CSS  
-> **Timeline:** Custom horizontal timeline using CSS/HTML (no external charting library)  
+> **Timeline:** Custom horizontal Gantt‑style timeline using CSS/HTML  
 > **State Management:** Server Components for initial data, Client Components for interactivity  
 > **Deployment:** Render as a standard Next.js app (Web Service)  
 > **Last Updated:** 2026-06-28
@@ -33,9 +34,9 @@
 The frontend displays a timeline of news clusters, allowing users to explore topics, filter by source, and refresh data. It consumes the News Pulse REST API.
 
 **Key features:**
-- Horizontal timeline with cluster bars (width = time span, height = article count).
-- Click a bar to expand details (articles, sources, timestamps) in a panel below.
-- Source filter (toggle BBC, NPR, The Guardian).
+- Horizontal Gantt‑style timeline with cluster bars (width = time span, height = article count).
+- Click a bar to expand details (articles, sources, timestamps) in a modal or panel.
+- Source filter (toggle BBC, NPR, The Guardian) – initial state read from URL query param, but subsequent changes do **not** update the URL.
 - Refresh button with job polling.
 
 ---
@@ -57,9 +58,9 @@ The frontend displays a timeline of news clusters, allowing users to explore top
 | Framework | Next.js 14 App Router | Server components for fast initial paint, built‑in routing |
 | Language | TypeScript | Type safety, aligns with backend |
 | Styling | Tailwind CSS | Rapid UI development, utility‑first |
-| Timeline | Custom horizontal timeline (CSS Flexbox/Grid) | No external library, fully controllable, no charting bloat |
+| Timeline | Custom Gantt‑style timeline (CSS Flexbox/Grid) | No external library, fully controllable, no charting bloat |
 | HTTP Client | Native `fetch` (with `cache: 'no-store'` for timeline) | Next.js built‑in |
-| State | React Context + URL query params | Minimal global state |
+| State | React Context + local state (no URL sync for filters) | Minimal global state; filter updates are client‑side only |
 | Polling | `setInterval` + `useEffect` | Simple, sufficient |
 | Icons | `lucide-react` | Lightweight, consistent |
 
@@ -75,14 +76,20 @@ The frontend displays a timeline of news clusters, allowing users to explore top
 |  +------------------------------------------------------------+  |
 +------------------------------------------------------------------+
 |                                                                    |
-|  Timeline                                                         |
+|  Timeline (Gantt view)                                            |
 |  +------------------------------------------------------------+  |
 |  |  Legend: ██ BBC  ██ NPR  ██ Guardian                         |  |
 |  |  [Bar1] [Bar2]     [Bar3]       [Bar4]       [Bar5]         |  |
 |  |  (width = time span, height = article count)                 |  |
 |  +------------------------------------------------------------+  |
 |                                                                    |
-|  Cluster Detail (expanded on click)                              |
+|  Cluster Grid (cards)                                             |
+|  +------------------------------------------------------------+  |
+|  |  [Card1]   [Card2]   [Card3]                                |  |
+|  |  [Card4]   [Card5]   ...                                   |  |
+|  +------------------------------------------------------------+  |
+|                                                                    |
+|  Cluster Detail Modal (on card/bar click)                        |
 |  +------------------------------------------------------------+  |
 |  |  Cluster Label                                               |  |
 |  |  Top Terms: election, senate, vote                          |  |
@@ -101,25 +108,24 @@ The frontend displays a timeline of news clusters, allowing users to explore top
 
 ## 5. Component Architecture
 
-- `app/page.tsx` – **Server Component** that fetches initial timeline data and renders the page.
-- `components/timeline/Timeline.tsx` – **Client Component** that receives clusters and renders bars. Handles bar click to expand details.
-- `components/timeline/TimelineBar.tsx` – Single bar representing a cluster. Shows label on hover.
-- `components/timeline/TimelineLegend.tsx` – Displays color mapping for sources.
-- `components/timeline/SourceFilter.tsx` – Toggle buttons; updates URL query param `?sources=bbc,npr`.
+- `app/page.tsx` – **Server Component** that fetches initial timeline data and passes it to client components.
+- `components/timeline/GanttTimeline.tsx` – **Client Component** that receives clusters and renders Gantt‑style bars. Handles bar click to expand details.
+- `components/timeline/TimelineStrip.tsx` – Alternative compact strip view (used in some contexts).
+- `components/timeline/SourceFilter.tsx` – Toggle buttons; reads initial state from URL but does not update URL.
 - `components/timeline/RefreshButton.tsx` – Calls `POST /ingest/trigger` and polls job status.
-- `components/cluster/ClusterDetail.tsx` – Displays selected cluster's articles, time range, top terms.
-- `components/ui/` – Reusable: `Button`, `Skeleton`, `Badge`, `Card`.
+- `components/cluster/ClusterDetailModal.tsx` – Displays selected cluster's articles, time range, top terms.
+- `components/ui/` – Reusable: `Button`, `Skeleton`, `Badge`, `Toast`.
 
 ---
 
 ## 6. State Management & Data Flow
 
 - **Server State:** `page.tsx` fetches `/timeline` with `cache: 'no-store'` and passes `clusters` to client components.
-- **URL State:** Source filter is stored in URL `?sources=bbc,npr` (comma-separated). This allows deep linking.
+- **URL State (initial only):** Source filter is read from `searchParams.sources` on page load, but subsequent filter changes are **not** reflected in the URL. This means deep linking works only for the initial view; refresh will reset filters to the URL value.
 - **Client State (local):**
-  - `selectedClusterId` – which cluster bar is clicked (expands detail panel).
-  - `isRefreshing` – loading state during refresh/polling.
-  - `jobStatus` – polling status (pending/running/completed/failed).
+  - `activeSources` – current filter set (client‑side only).
+  - `selectedClusterId` – which cluster is clicked (expands detail modal).
+  - `refreshState` – polling status (idle/triggering/pending/running/completed/failed).
 - **Polling:** `usePolling` custom hook manages `setInterval` and updates job status.
 
 **Data Flow Diagram:**
@@ -131,7 +137,8 @@ User loads page
 ┌──────────────────────┐
 │ Server Component     │
 │ fetches /timeline    │
-│ (with source filter) │
+│ with initial filters │
+│ from URL             │
 └──────────────────────┘
        │
        ▼
@@ -143,12 +150,22 @@ User loads page
 └──────────────────────┘
        │
        ▼
+User toggles source filter
+       │
+       ▼
+┌──────────────────────┐
+│ Update local state   │
+│ (URL not updated)    │
+│ → re‑fetch timeline  │
+└──────────────────────┘
+       │
+       ▼
 User clicks bar
        │
        ▼
 ┌──────────────────────┐
 │ Show ClusterDetail   │
-│ (expanded panel)     │
+│ (modal)              │
 └──────────────────────┘
 ```
 
@@ -160,25 +177,24 @@ All endpoints are defined in `lib/api.ts` with typed functions.
 
 **Endpoints used:**
 - `GET /timeline?source=BBC+News&source=NPR` – fetch timeline data.
-- `GET /clusters/:id` – fetch full cluster detail (if needed for detail panel).
+- `GET /clusters/:id` – fetch full cluster detail (for detail modal).
 - `POST /ingest/trigger` – start a new scrape job.
 - `GET /ingest/status/:jobId` – poll job status.
 
-**Source Filter:** The frontend sends `source` as a repeated query param (e.g., `?source=BBC+News&source=NPR`). The URL stores it as `?sources=bbc,npr` and converts to the required format.
+**Source Filter:** The frontend sends `source` as a repeated query param (e.g., `?source=BBC+News&source=NPR`) based on `activeSources` state.
 
 ---
 
 ## 8. Styling & Theming
 
-- **Tailwind CSS** with a clean design system:
-  - Primary color: slate‑blue (`#3b82f6`).
-  - Neutral: slate (`#1e293b` background, `#f8fafc` card backgrounds).
-  - Sources mapped to colors: BBC = `#c0392b`, NPR = `#2e86c1`, Guardian = `#27ae60`.
+- **Tailwind CSS** with a clean dark‑newsprint theme:
+  - Background: dark charcoal (`#2A2A2A`), text: warm off‑white (`#F0E8D8`).
+  - Sources mapped to colours: BBC = red, NPR = blue, Guardian = green.
 - **Timeline bars:** 
   - Width proportional to `(end - start)` (time span).
   - Height proportional to `articleCount` (capped at 6rem, min height 2rem).
-  - Opacity/colour intensity = `intensity` (from backend) – higher = more opaque/bolder.
-- **Typography:** Inter (Google Font), with clear hierarchy.
+  - Gradient based on source mix.
+- **Typography:** Merriweather (headings), Lora (body), Inter (UI).
 
 ---
 
@@ -186,10 +202,10 @@ All endpoints are defined in `lib/api.ts` with typed functions.
 
 | State | UI |
 |-------|----|
-| Initial page load | Skeleton placeholders for timeline bars (shimmer effect). |
+| Initial page load | Skeleton placeholders for timeline bars and cards (shimmer effect). |
 | Timeline empty | "No clusters found" with a hint to refresh. |
 | Timeline error | Error banner with retry button. |
-| Refresh triggered | Refresh button shows spinner; progress message "Scraping...". |
+| Refresh triggered | Refresh button shows spinner; progress messages: "Starting…", "Queued…", "Fetching…". |
 | Job failed | Toast notification with error details; retry button. |
 | Job completed | Timeline automatically re‑fetches (client‑side). |
 
@@ -201,30 +217,30 @@ All endpoints are defined in `lib/api.ts` with typed functions.
 - Focus indicators: Visible outlines on interactive elements.
 - Semantic HTML: `<main>`, `<section>`, `<button>`, `<ul>` for articles.
 - ARIA labels: For timeline bars (e.g., `aria-label="Cluster: election senate vote, 2 articles"`).
-- Screen reader announcements: When loading/refreshing, use `aria-live` regions.
+- Screen reader announcements: When loading/refreshing, use `aria-live` regions (toasts).
 
 ---
 
 ## 11. Performance Optimizations
 
 - **Server Components:** Initial timeline data is fetched server‑side, reducing client workload.
-- **Memoize client components:** Use `React.memo` for `TimelineBar` and `ClusterDetail`.
+- **Memoize client components:** Use `React.memo` for `GanttTimeline` and `ClusterDetailModal`.
 - **Lazy load polling logic:** Polling starts only after user clicks refresh.
 - **Bundle optimization:** No heavy charting libraries; custom timeline keeps bundle small.
-- **Avoid unnecessary re‑renders:** Source filter uses URL state, not React state, to keep components pure.
+- **Avoid unnecessary re‑renders:** Source filter state is local and does not trigger global re‑renders.
 
 ---
 
 ## 12. Deployment
 
-We deploy the frontend as a **standard Next.js app** on **Render** (Web Service) or **Vercel** (recommended for simplicity).
+We deploy the frontend as a **standard Next.js app** on **Render** (Web Service) or **Vercel**.
 
 **Render setup:**
 - Build command: `npm run build`
 - Start command: `npm start`
 - Environment variables set in dashboard.
 
-**Vercel (alternative):** Automatic preview deployments from GitHub; simpler.
+**Vercel (alternative):** Automatic preview deployments from GitHub.
 
 We **do not** use `next export` – we use the server‑rendered Next.js app so that server components can fetch data on each request.
 
@@ -245,10 +261,9 @@ We **do not** use `next export` – we use the server‑rendered Next.js app so 
 3. Set up folder structure as defined above.
 4. Implement `lib/api.ts` and types.
 5. Build components in order:
-   - `Timeline` + `TimelineBar` (with static mock data initially)
+   - `GanttTimeline` + bars (with static mock data initially)
    - `SourceFilter`
    - `RefreshButton` + polling
-   - `ClusterDetail` (expandable panel)
+   - `ClusterDetailModal`
 6. Connect to live backend and test.
 7. Deploy to Render/Vercel.
-
