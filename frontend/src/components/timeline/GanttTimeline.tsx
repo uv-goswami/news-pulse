@@ -56,7 +56,7 @@ export function GanttTimeline({ clusters, timeRange, selectedId, onClusterClick,
   return (
     <div style={{ background: 'var(--c-surface)', border: '1px solid var(--c-border)', borderRadius: 'var(--r-sm)', overflow: 'hidden' }}>
       {/* Time axis header */}
-      <div style={{ padding: '8px 16px 0', borderBottom: '1px solid var(--c-border)', position: 'relative', height: 36 }}>
+      <div style={{ padding: '8px 16px 0', borderBottom: '1px solid var(--c-border)', position: 'relative', height: 38 }}>
         {ticks.map((tick, i) => (
           <div
             key={i}
@@ -73,7 +73,7 @@ export function GanttTimeline({ clusters, timeRange, selectedId, onClusterClick,
             }}
           >
             <div style={{ width: 1, height: 8, background: 'var(--c-border)', marginBottom: 2 }} />
-            <span className="ui-text" style={{ fontSize: '0.65rem', color: 'var(--c-m)', whiteSpace: 'nowrap', letterSpacing: '0.02em' }}>
+            <span className="ui-text" style={{ fontSize: '0.8rem', color: 'var(--c-m)', whiteSpace: 'nowrap', letterSpacing: '0.02em' }}>
               {tick.label}
             </span>
           </div>
@@ -94,12 +94,12 @@ export function GanttTimeline({ clusters, timeRange, selectedId, onClusterClick,
               style={{
                 display: 'flex',
                 alignItems: 'center',
-                padding: '6px 16px',
+                padding: '8px 16px',
                 cursor: 'pointer',
                 transition: 'background var(--t-fast)',
                 background: isSelected ? 'var(--c-surface-2)' : 'transparent',
                 borderBottom: '1px solid var(--c-border)',
-                minHeight: 50,
+                minHeight: 56,
               }}
               onClick={() => onClusterClick(bar.id)}
               onMouseEnter={e => {
@@ -111,16 +111,16 @@ export function GanttTimeline({ clusters, timeRange, selectedId, onClusterClick,
             >
               {/* Label column */}
               <div style={{ flex: '0 0 30%', minWidth: 0, paddingRight: 12 }}>
-                <p className="headline-sm" style={{ fontSize: '0.95rem', color: isSelected ? 'var(--c-accent)' : 'var(--c-h)', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <p className="headline-sm" style={{ fontSize: '1.1rem', color: isSelected ? 'var(--c-accent)' : 'var(--c-h)', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   {bar.label}
                 </p>
-                <span className="ui-text" style={{ fontSize: '0.7rem', color: 'var(--c-m)' }}>
+                <span className="ui-text" style={{ fontSize: '0.85rem', color: 'var(--c-m)' }}>
                   {bar.articleCount} article{bar.articleCount !== 1 ? 's' : ''}
                 </span>
               </div>
 
               {/* Bar column */}
-              <div style={{ flex: '0 0 70%', position: 'relative', height: 28 }}>
+              <div style={{ flex: '0 0 70%', position: 'relative', height: 32 }}>
                 <div style={{ width: '100%', height: 6, background: 'var(--c-border)', borderRadius: 3, position: 'absolute', top: '50%', transform: 'translateY(-50%)' }} />
 
                 <div
@@ -130,7 +130,7 @@ export function GanttTimeline({ clusters, timeRange, selectedId, onClusterClick,
                     width: `${bar.width}%`,
                     top: '50%',
                     transform: 'translateY(-50%)',
-                    height: 20,
+                    height: 24,
                     borderRadius: 'var(--r-sm)',
                     background: gradient,
                     boxShadow: isSelected ? `0 0 0 1px var(--c-accent), ${shadow}` : shadow,
@@ -146,7 +146,7 @@ export function GanttTimeline({ clusters, timeRange, selectedId, onClusterClick,
                     right: 0,
                     top: '50%',
                     transform: 'translateY(-50%)',
-                    fontSize: '0.65rem',
+                    fontSize: '0.8rem',
                     color: 'var(--c-m)',
                     fontFamily: 'Inter, sans-serif',
                     whiteSpace: 'nowrap',

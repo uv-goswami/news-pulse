@@ -10,8 +10,19 @@ from scraper.config import DATABASE_URL
 logger = logging.getLogger(__name__)
 
 
+def clean_db_url(url: str) -> str:
+    """
+    Remove unsupported query parameters (like `?schema=public`) from the database URL.
+    psycopg2 does not accept a 'schema' parameter in the DSN.
+    """
+    if '?' in url:
+        url = url.split('?')[0]
+    return url
+
+
 def get_connection():
-    return psycopg2.connect(DATABASE_URL)
+    clean_url = clean_db_url(DATABASE_URL)
+    return psycopg2.connect(clean_url)
 
 
 def article_exists(url_hash: str) -> bool:

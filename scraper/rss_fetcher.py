@@ -1,5 +1,6 @@
 import feedparser
 import logging
+import socket
 from typing import List, Dict, Any
 from datetime import datetime
 
@@ -8,15 +9,24 @@ from .utils import parse_date, strip_html, url_to_hash
 
 logger = logging.getLogger(__name__)
 
+# Timeout for fetching RSS feeds (seconds)
+RSS_FETCH_TIMEOUT = 30
+
 def fetch_feed(feed_url: str, feed_name: str) -> List[Dict[str, Any]]:
-    """Fetch and normalize RSS feed items."""
+    """Fetch and normalize RSS feed items with a timeout."""
     logger.info(f"Fetching feed: {feed_name} ({feed_url})")
     
+    # Set a global socket timeout to prevent indefinite hangs
+    original_timeout = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(RSS_FETCH_TIMEOUT)
     try:
         feed = feedparser.parse(feed_url)
     except Exception as e:
         logger.error(f"Failed to parse feed {feed_name}: {e}")
         return []
+    finally:
+        # Restore original timeout
+        socket.setdefaulttimeout(original_timeout)
 
     if feed.bozo:
         logger.warning(f"Feed {feed_name} parsing had errors: {feed.bozo_exception}")
