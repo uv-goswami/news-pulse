@@ -24,3 +24,17 @@ Xpo_Tech_Candidate_Assessment.docx.pdf
 news-pulse_docs.md
 Combine_all_md.py
 
+.env
+
+backend/node_modules/
+backend/.env
+backend/dist/
+backend/prisma/*.db
+backend/prisma/*.db-journal
+
+# Next.js
+frontend/.next/
+frontend/node_modules/
+frontend/.env
+frontend/.env.local
+
