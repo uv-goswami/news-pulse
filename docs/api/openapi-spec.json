@@ -1,0 +1,783 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "News Pulse API",
+    "description": "REST API for News Pulse – a topic-clustered news timeline system.\n\nPulls articles from RSS feeds, groups them into topic clusters using TF-IDF,\nand serves the results for timeline visualization.\n\nAuthentication is optional – the assessment does not require it. We added JWT Bearer\ntokens to protect the ingest endpoint from public abuse. If you skip auth, remove\nthe security requirements from the spec and the backend guards.\n\nRate limiting is also applied to prevent abuse.",
+    "version": "1.0.0",
+    "contact": {
+      "name": "News Pulse",
+      "email": "admin@newspulse.com"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://news-pulse-backend.onrender.com",
+      "description": "Production (Render)"
+    },
+    {
+      "url": "http://localhost:3001",
+      "description": "Local development"
+    }
+  ],
+  "tags": [
+    { "name": "auth", "description": "Authentication (optional) – login, token refresh, logout" },
+    { "name": "clusters", "description": "Topic cluster read endpoints" },
+    { "name": "timeline", "description": "Timeline visualization data" },
+    { "name": "ingest", "description": "Scraper pipeline control and status" },
+    { "name": "health", "description": "API liveness and readiness checks" }
+  ],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Optional access token obtained from POST /auth/login or POST /auth/refresh. TTL: 15 minutes. Not required for the core assessment."
+      }
+    },
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message", "statusCode"],
+            "properties": {
+              "code": {
+                "type": "string",
+                "example": "CLUSTER_NOT_FOUND",
+                "description": "Machine-readable error constant (SCREAMING_SNAKE_CASE)"
+              },
+              "message": {
+                "type": "string",
+                "example": "No cluster found with id b4e2a1c3-...",
+                "description": "Human-readable error description, safe to display in UI"
+              },
+              "statusCode": {
+                "type": "integer",
+                "example": 404
+              },
+              "requestId": {
+                "type": "string",
+                "example": "req-abc123"
+              },
+              "details": {
+                "type": "array",
+                "description": "Present only on VALIDATION_ERROR",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "field": { "type": "string", "example": "email" },
+                    "message": { "type": "string", "example": "must be a valid email address" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "PaginationMeta": {
+        "type": "object",
+        "required": ["page", "limit", "total", "totalPages"],
+        "properties": {
+          "page": { "type": "integer", "example": 1 },
+          "limit": { "type": "integer", "example": 20 },
+          "total": { "type": "integer", "example": 43 },
+          "totalPages": { "type": "integer", "example": 3 }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": {
+          "email": { "type": "string", "format": "email", "example": "admin@newspulse.com" },
+          "password": { "type": "string", "minLength": 8, "maxLength": 128, "example": "s3cure-p@ssword" }
+        }
+      },
+      "LoginResponse": {
+        "type": "object",
+        "required": ["accessToken", "expiresIn", "user"],
+        "properties": {
+          "accessToken": { "type": "string", "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." },
+          "expiresIn": { "type": "integer", "example": 900 },
+          "user": {
+            "type": "object",
+            "required": ["id", "email", "role"],
+            "properties": {
+              "id": { "type": "string", "format": "uuid", "example": "a3f2c1d4-9f8d-4b2a-a1c3-9f8d4b2aa1c3" },
+              "email": { "type": "string", "example": "admin@newspulse.com" },
+              "role": { "type": "string", "enum": ["admin", "viewer"], "example": "admin" }
+            }
+          }
+        }
+      },
+      "RefreshResponse": {
+        "type": "object",
+        "required": ["accessToken", "expiresIn"],
+        "properties": {
+          "accessToken": { "type": "string", "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." },
+          "expiresIn": { "type": "integer", "example": 900 }
+        }
+      },
+      "Article": {
+        "type": "object",
+        "required": ["id", "headline", "sourceName", "sourceUrl", "publishedAt", "url"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid", "example": "c5d3b2a1-1234-4b2a-a1c3-9f8d4b2aa1c3" },
+          "headline": { "type": "string", "example": "Senate passes sweeping election bill after marathon debate" },
+          "summary": { "type": "string", "nullable": true, "example": "The Senate voted 52-48 early Friday to pass..." },
+          "sourceName": { "type": "string", "example": "BBC News" },
+          "sourceUrl": { "type": "string", "format": "uri", "example": "https://feeds.bbci.co.uk/news/rss.xml" },
+          "publishedAt": { "type": "string", "format": "date-time", "example": "2026-06-26T08:14:00Z" },
+          "url": { "type": "string", "format": "uri", "example": "https://www.bbc.co.uk/news/world-us-canada-12345678" }
+        }
+      },
+      "ClusterSummary": {
+        "type": "object",
+        "required": ["id", "label", "topTerms", "articleCount", "earliestArticleAt", "latestArticleAt", "sources", "createdAt"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid", "example": "b4e2a1c3-9f8d-4b2a-a1c3-9f8d4b2aa1c3" },
+          "label": { "type": "string", "example": "election senate vote bill" },
+          "topTerms": { "type": "array", "items": { "type": "string" }, "example": ["election", "senate", "vote", "bill", "congress"] },
+          "articleCount": { "type": "integer", "minimum": 1, "example": 7 },
+          "earliestArticleAt": { "type": "string", "format": "date-time", "example": "2026-06-26T08:14:00Z" },
+          "latestArticleAt": { "type": "string", "format": "date-time", "example": "2026-06-27T11:47:00Z" },
+          "sources": { "type": "array", "items": { "type": "string" }, "example": ["BBC News", "NPR", "The Guardian"] },
+          "createdAt": { "type": "string", "format": "date-time", "example": "2026-06-26T09:00:00Z" }
+        }
+      },
+      "ClusterDetail": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ClusterSummary" },
+          {
+            "type": "object",
+            "required": ["articles"],
+            "properties": {
+              "articles": {
+                "type": "array",
+                "items": { "$ref": "#/components/schemas/Article" }
+              }
+            }
+          }
+        ]
+      },
+      "TimelineCluster": {
+        "type": "object",
+        "required": ["id", "label", "topTerms", "start", "end", "articleCount", "intensity", "sources"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid", "example": "b4e2a1c3-9f8d-4b2a-a1c3-9f8d4b2aa1c3" },
+          "label": { "type": "string", "example": "election senate vote bill" },
+          "topTerms": { "type": "array", "items": { "type": "string" }, "example": ["election", "senate", "vote", "bill"] },
+          "start": { "type": "string", "format": "date-time", "example": "2026-06-26T08:14:00Z" },
+          "end": { "type": "string", "format": "date-time", "example": "2026-06-27T11:47:00Z" },
+          "articleCount": { "type": "integer", "example": 7 },
+          "intensity": { "type": "number", "format": "float", "minimum": 0, "maximum": 1, "example": 0.78 },
+          "sources": { "type": "array", "items": { "type": "string" }, "example": ["BBC News", "NPR"] }
+        }
+      },
+      "TimelineResponse": {
+        "type": "object",
+        "required": ["timeRange", "sources", "clusters", "meta"],
+        "properties": {
+          "timeRange": {
+            "type": "object",
+            "required": ["from", "to"],
+            "properties": {
+              "from": { "type": "string", "format": "date-time", "example": "2026-06-20T00:00:00Z" },
+              "to": { "type": "string", "format": "date-time", "example": "2026-06-27T23:59:59Z" }
+            }
+          },
+          "sources": { "type": "array", "items": { "type": "string" }, "example": ["BBC News", "NPR", "The Guardian"] },
+          "clusters": { "type": "array", "items": { "$ref": "#/components/schemas/TimelineCluster" } },
+          "meta": {
+            "type": "object",
+            "required": ["totalClusters", "totalArticles", "lastIngestAt"],
+            "properties": {
+              "totalClusters": { "type": "integer", "example": 23 },
+              "totalArticles": { "type": "integer", "example": 147 },
+              "lastIngestAt": { "type": "string", "format": "date-time", "nullable": true, "example": "2026-06-27T11:00:00Z" }
+            }
+          }
+        }
+      },
+      "IngestJobStatus": {
+        "type": "object",
+        "required": ["jobId", "status", "triggeredBy", "triggeredAt"],
+        "properties": {
+          "jobId": { "type": "string", "format": "uuid", "example": "d6e4c3b2-9f8d-4b2a-a1c3-9f8d4b2aa1c3" },
+          "status": { "type": "string", "enum": ["pending", "running", "completed", "failed"], "example": "completed" },
+          "triggeredBy": { "type": "string", "enum": ["api", "scheduler"], "example": "api" },
+          "triggeredAt": { "type": "string", "format": "date-time", "example": "2026-06-27T12:00:00Z" },
+          "startedAt": { "type": "string", "format": "date-time", "nullable": true, "example": "2026-06-27T12:00:02Z" },
+          "finishedAt": { "type": "string", "format": "date-time", "nullable": true, "example": "2026-06-27T12:00:47Z" },
+          "articlesFetched": { "type": "integer", "nullable": true, "example": 34 },
+          "clustersGenerated": { "type": "integer", "nullable": true, "example": 11 },
+          "errorMessage": { "type": "string", "nullable": true, "example": null }
+        }
+      },
+      "TriggerResponse": {
+        "type": "object",
+        "required": ["jobId", "status", "message", "triggeredAt"],
+        "properties": {
+          "jobId": { "type": "string", "format": "uuid", "example": "d6e4c3b2-9f8d-4b2a-a1c3-9f8d4b2aa1c3" },
+          "status": { "type": "string", "enum": ["pending"], "example": "pending" },
+          "message": { "type": "string", "example": "Ingest job created. Poll /ingest/status/:jobId for updates." },
+          "triggeredAt": { "type": "string", "format": "date-time", "example": "2026-06-27T12:00:00Z" }
+        }
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Missing or invalid access token (only if auth enabled)",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+            "example": {
+              "error": {
+                "code": "UNAUTHORIZED",
+                "message": "Authorization token is missing or invalid",
+                "statusCode": 401
+              }
+            }
+          }
+        }
+      },
+      "Forbidden": {
+        "description": "Valid token but insufficient role (only if auth enabled)",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+            "example": {
+              "error": {
+                "code": "FORBIDDEN",
+                "message": "Admin role required for this action",
+                "statusCode": 403
+              }
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Resource not found",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" }
+          }
+        }
+      },
+      "ValidationError": {
+        "description": "Request failed schema validation",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+            "example": {
+              "error": {
+                "code": "VALIDATION_ERROR",
+                "message": "Request validation failed",
+                "statusCode": 400,
+                "details": [
+                  { "field": "email", "message": "must be a valid email address" }
+                ]
+              }
+            }
+          }
+        }
+      },
+      "RateLimited": {
+        "description": "Rate limit exceeded",
+        "headers": {
+          "Retry-After": {
+            "schema": { "type": "integer" },
+            "description": "Seconds to wait before retrying"
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+            "example": {
+              "error": {
+                "code": "RATE_LIMIT_EXCEEDED",
+                "message": "Too many requests. Retry after 47 seconds.",
+                "statusCode": 429
+              }
+            }
+          }
+        }
+      }
+    },
+    "parameters": {
+      "PageParam": {
+        "name": "page",
+        "in": "query",
+        "schema": { "type": "integer", "minimum": 1, "default": 1 },
+        "description": "Page number (1-indexed)"
+      },
+      "LimitParam": {
+        "name": "limit",
+        "in": "query",
+        "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 },
+        "description": "Items per page"
+      },
+      "SourceFilterParam": {
+        "name": "source",
+        "in": "query",
+        "schema": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "style": "form",
+        "explode": true,
+        "description": "Filter by source name. Repeat the parameter for multiple sources (OR filter). Example: ?source=BBC+News&source=NPR"
+      }
+    }
+  },
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Log in and obtain tokens (optional)",
+        "description": "Authenticate with email/password. Returns access token and sets httpOnly refresh cookie. Only needed if you enable JWT authentication.",
+        "operationId": "login",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/LoginRequest" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string",
+                  "example": "refreshToken=<token>; HttpOnly; Secure; SameSite=Strict; Path=/auth/refresh; Max-Age=604800"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/LoginResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/ValidationError" },
+          "401": {
+            "description": "Invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+                "example": {
+                  "error": {
+                    "code": "INVALID_CREDENTIALS",
+                    "message": "Email or password is incorrect",
+                    "statusCode": 401
+                  }
+                }
+              }
+            }
+          },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Refresh access token (optional)",
+        "description": "Use httpOnly refresh token cookie to get a new access token. Rotates the refresh token.",
+        "operationId": "refreshToken",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "refreshToken",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "New access token issued",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string",
+                  "example": "refreshToken=<new_token>; HttpOnly; Secure; SameSite=Strict; Path=/auth/refresh; Max-Age=604800"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/RefreshResponse" }
+              }
+            }
+          },
+          "401": {
+            "description": "Refresh token missing, invalid, expired, or replayed",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+                "examples": {
+                  "missing": {
+                    "value": {
+                      "error": {
+                        "code": "REFRESH_TOKEN_MISSING",
+                        "message": "No refresh token cookie found",
+                        "statusCode": 401
+                      }
+                    }
+                  },
+                  "reused": {
+                    "value": {
+                      "error": {
+                        "code": "REFRESH_TOKEN_REUSED",
+                        "message": "Token reuse detected. All sessions have been invalidated.",
+                        "statusCode": 401
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": ["auth"],
+        "summary": "Log out (optional)",
+        "description": "Invalidates refresh token and clears cookie. Requires access token.",
+        "operationId": "logout",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Logged out successfully",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string",
+                  "example": "refreshToken=; HttpOnly; Secure; SameSite=Strict; Path=/auth/refresh; Max-Age=0"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "message": { "type": "string", "example": "Logged out successfully" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/clusters": {
+      "get": {
+        "tags": ["clusters"],
+        "summary": "List topic clusters",
+        "description": "Returns paginated list of clusters ordered by most recent activity. Supports source filtering (multiple allowed) and date range.",
+        "operationId": "listClusters",
+        "parameters": [
+          { "$ref": "#/components/parameters/PageParam" },
+          { "$ref": "#/components/parameters/LimitParam" },
+          { "$ref": "#/components/parameters/SourceFilterParam" },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": { "type": "string", "format": "date-time" },
+            "description": "Return clusters with latest_article_at after this datetime"
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": { "type": "string", "format": "date-time" },
+            "description": "Return clusters with earliest_article_at before this datetime"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cluster list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["data", "meta"],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/ClusterSummary" }
+                    },
+                    "meta": { "$ref": "#/components/schemas/PaginationMeta" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/ValidationError" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/clusters/{id}": {
+      "get": {
+        "tags": ["clusters"],
+        "summary": "Get cluster detail",
+        "description": "Returns full cluster detail with articles sorted chronologically.",
+        "operationId": "getCluster",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" },
+            "description": "Cluster UUID"
+          },
+          { "$ref": "#/components/parameters/SourceFilterParam" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cluster detail with articles",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ClusterDetail" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/ValidationError" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/timeline": {
+      "get": {
+        "tags": ["timeline"],
+        "summary": "Get timeline visualization data",
+        "description": "Returns clusters formatted for plotting on a time axis. Each cluster has start, end, and intensity (normalised). Supports source filtering.",
+        "operationId": "getTimeline",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "schema": { "type": "string", "format": "date-time", "default": "7 days ago" },
+            "description": "Timeline start (ISO-8601 UTC). Defaults to 7 days ago."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": { "type": "string", "format": "date-time", "default": "now" },
+            "description": "Timeline end (ISO-8601 UTC). Defaults to now."
+          },
+          { "$ref": "#/components/parameters/SourceFilterParam" },
+          {
+            "name": "minArticles",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "default": 1 },
+            "description": "Minimum article count for a cluster to be included"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Timeline data",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TimelineResponse" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/ValidationError" },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/ingest/trigger": {
+      "post": {
+        "tags": ["ingest"],
+        "summary": "Trigger scrape + cluster pipeline",
+        "description": "Creates a new ingest job and returns 202 Accepted immediately. The Python scraper runs asynchronously. Poll /ingest/status/:jobId to track progress. Only one job may run at a time.\n\n**Auth:** Optional – if enabled, requires admin role. Remove the security requirement if not needed.",
+        "operationId": "triggerIngest",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "202": {
+            "description": "Ingest job accepted and queued",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/TriggerResponse" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "409": {
+            "description": "An ingest job is already running",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorResponse" },
+                "example": {
+                  "error": {
+                    "code": "JOB_ALREADY_RUNNING",
+                    "message": "An ingest job is already in progress. Wait for it to complete.",
+                    "statusCode": 409
+                  }
+                }
+              }
+            }
+          },
+          "429": { "$ref": "#/components/responses/RateLimited" }
+        }
+      }
+    },
+    "/ingest/status/{jobId}": {
+      "get": {
+        "tags": ["ingest"],
+        "summary": "Poll ingest job status",
+        "description": "Returns the current status of an ingest job. Poll every 3-5 seconds until status is completed or failed.",
+        "operationId": "getIngestStatus",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" },
+            "description": "Job ID from the trigger response"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Job status",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/IngestJobStatus" }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/ValidationError" },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" }
+        }
+      }
+    },
+    "/ingest/history": {
+      "get": {
+        "tags": ["ingest"],
+        "summary": "List recent ingest jobs",
+        "description": "Returns paginated history of ingest jobs. Useful for admin visibility.",
+        "operationId": "listIngestHistory",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "$ref": "#/components/parameters/PageParam" },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": { "type": "integer", "minimum": 1, "maximum": 50, "default": 10 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Ingest job history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": ["data", "meta"],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/IngestJobStatus" }
+                    },
+                    "meta": { "$ref": "#/components/schemas/PaginationMeta" }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": ["health"],
+        "summary": "Liveness check",
+        "description": "Returns 200 if the API process is running.",
+        "operationId": "healthLive",
+        "responses": {
+          "200": {
+            "description": "API is running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "ok" },
+                    "timestamp": { "type": "string", "format": "date-time" },
+                    "version": { "type": "string", "example": "1.0.0" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "tags": ["health"],
+        "summary": "Readiness check",
+        "description": "Returns 200 if API and database are both reachable.",
+        "operationId": "healthReady",
+        "responses": {
+          "200": {
+            "description": "API and DB are ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "ready" },
+                    "checks": {
+                      "type": "object",
+                      "properties": {
+                        "database": { "type": "string", "example": "ok" },
+                        "timestamp": { "type": "string", "format": "date-time" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database unreachable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "not_ready" },
+                    "checks": {
+                      "type": "object",
+                      "properties": {
+                        "database": { "type": "string", "example": "error: connection refused" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
