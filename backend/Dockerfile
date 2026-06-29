@@ -25,6 +25,9 @@ COPY scraper /app/scraper
 WORKDIR /app
 RUN pip3 install --no-cache-dir -r scraper/requirements.txt
 
+# Install lxml_html_clean to fix the lxml.html.clean import error
+RUN pip3 install --no-cache-dir lxml_html_clean
+
 # Back to backend directory
 WORKDIR /app/backend
 

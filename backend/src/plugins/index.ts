@@ -13,6 +13,7 @@ export async function registerPlugins(app: FastifyInstance) {
     origin: [
       'http://localhost:3000',
       'http://192.168.83.219:3000',
+      'https://news-pulse-frontend-wv0z.onrender.com',
       process.env.FRONTEND_URL,
     ].filter(Boolean) as string[],
     credentials: true,
