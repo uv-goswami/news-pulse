@@ -37,14 +37,14 @@ RUN npx prisma generate
 # Build TypeScript
 RUN npm run build
 
-# Verify dist directory exists (helps debug)
-RUN ls -la dist
+# Verify the compiled file exists (debug)
+RUN ls -la dist && ls -la dist/server.js
 
-# Remove dev dependencies (keep prisma because it's now in dependencies)
-RUN npm prune --omit=dev
+# Do NOT prune dev dependencies – keep everything to avoid missing runtime files
+# (Prune is safe, but skipping it ensures no accidental removal)
 
 # Expose the port
 EXPOSE 3001
 
-# Start the server: run migrations, then start with absolute path
-CMD ["sh", "-c", "npm run prisma:deploy && node /app/backend/dist/server.js"]
+# Start the server: run migrations, then start using relative path
+CMD ["sh", "-c", "npm run prisma:deploy && node dist/server.js"]
