@@ -28,6 +28,9 @@ RUN pip3 install --no-cache-dir -r scraper/requirements.txt
 # Back to backend directory
 WORKDIR /app/backend
 
+# Set a dummy DATABASE_URL for Prisma Client generation (does not require a real DB)
+ENV DATABASE_URL=postgresql://dummy:dummy@localhost:5432/dummy
+
 # Generate Prisma Client
 RUN npx prisma generate
 
@@ -40,5 +43,5 @@ RUN npm prune --omit=dev
 # Expose the port
 EXPOSE 3001
 
-# Start the server (migrations run inside the start script)
+# Start the server (migrations run inside the start script with the real DATABASE_URL from Render)
 CMD ["npm", "start"]
