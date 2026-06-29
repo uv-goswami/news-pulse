@@ -10,7 +10,7 @@ const BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   // Only set Content-Type if there's a body
-  const headers: HeadersInit = { ...(init?.headers ?? {}) };
+  const headers: Record<string, string> = { ...(init?.headers as Record<string, string> ?? {}) };
   const hasBody = init?.body !== undefined && init?.body !== null && init?.body !== '';
   if (hasBody) {
     headers['Content-Type'] = 'application/json';
