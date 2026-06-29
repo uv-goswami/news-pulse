@@ -16,6 +16,7 @@ export const env = {
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:3000',
 
   // Scraper path – absolute path to the Python main script
+  // Defaults to ../scraper/main.py relative to the backend directory
   SCRAPER_PATH: process.env.SCRAPER_PATH
     ? path.resolve(process.env.SCRAPER_PATH)
     : path.resolve(process.cwd(), '..', 'scraper', 'main.py'),

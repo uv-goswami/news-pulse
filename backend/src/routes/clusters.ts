@@ -1,6 +1,14 @@
 import { FastifyInstance } from 'fastify'
 import { listClusters, getClusterById } from '../services/cluster.service.js'
 
+interface ListClustersQuery {
+  page?: number
+  limit?: number
+  source?: string | string[]
+  from?: string
+  to?: string
+}
+
 const clusterListSchema = {
   querystring: {
     type: 'object',
@@ -41,12 +49,13 @@ const clusterDetailSchema = {
 export async function clustersRoutes(app: FastifyInstance) {
   // GET /clusters
   app.get('/clusters', { schema: clusterListSchema }, async (request, reply) => {
-    const { page, limit, source, from, to } = request.query as any
+    const query = request.query as ListClustersQuery
+    const { page, limit, source, from, to } = query
 
     const result = await listClusters({
       page: page || 1,
       limit: limit || 20,
-      sources: source && source.length > 0 ? source : undefined,
+      sources: source && source.length > 0 ? (Array.isArray(source) ? source : [source]) : undefined,
       from,
       to,
     })
@@ -57,9 +66,10 @@ export async function clustersRoutes(app: FastifyInstance) {
   // GET /clusters/:id
   app.get('/clusters/:id', { schema: clusterDetailSchema }, async (request, reply) => {
     const { id } = request.params as { id: string }
-    const { source } = request.query as { source?: string[] }
+    const query = request.query as { source?: string | string[] }
+    const source = query.source
 
-    const cluster = await getClusterById(id, source && source.length > 0 ? source : undefined)
+    const cluster = await getClusterById(id, source && source.length > 0 ? (Array.isArray(source) ? source : [source]) : undefined)
 
     if (!cluster) {
       reply.status(404).send({

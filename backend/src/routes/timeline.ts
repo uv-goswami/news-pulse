@@ -1,6 +1,13 @@
 import { FastifyInstance } from 'fastify'
 import { getTimelineData } from '../services/timeline.service.js'
 
+interface TimelineQuery {
+  from?: string
+  to?: string
+  source?: string | string[]
+  minArticles?: number
+}
+
 const timelineSchema = {
   querystring: {
     type: 'object',
@@ -19,12 +26,13 @@ const timelineSchema = {
 
 export async function timelineRoutes(app: FastifyInstance) {
   app.get('/timeline', { schema: timelineSchema }, async (request, reply) => {
-    const { from, to, source, minArticles } = request.query as any
+    const query = request.query as TimelineQuery
+    const { from, to, source, minArticles } = query
 
     const data = await getTimelineData({
       from,
       to,
-      sources: source && source.length > 0 ? source : undefined,
+      sources: source && source.length > 0 ? (Array.isArray(source) ? source : [source]) : undefined,
       minArticles: minArticles || 1,
     })
 
