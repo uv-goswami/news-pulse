@@ -107,7 +107,7 @@ export function NewsPulseClient({
       setTimelineError(null);
       setVisibleCount(PAGE_SIZE);
       try {
-        const sourcesArr = [...sources];
+        const sourcesArr = Array.from(sources);
         const result = await fetchTimeline({
           sources: sourcesArr.length ? sourcesArr : undefined,
           range,
