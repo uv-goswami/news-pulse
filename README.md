@@ -1,225 +1,228 @@
+# News Pulse — Topic-Clustered News Timeline
 
-# News Pulse — Topic‑Clustered News Timeline
+**Live Demo**  
+- Frontend: [https://news-pulse-frontend-wv0z.onrender.com](https://news-pulse-frontend-wv0z.onrender.com)  
+- Backend API: [https://news-pulse-backend-08zn.onrender.com](https://news-pulse-backend-08zn.onrender.com)  
+- API Docs: [https://news-pulse-backend-08zn.onrender.com/docs](https://news-pulse-backend-08zn.onrender.com/docs) (Swagger UI)
 
-News Pulse is a full‑stack application that automatically fetches articles from multiple RSS feeds, groups them into topics using TF‑IDF and cosine similarity, and visualises the results on an interactive timeline. It helps you see what the news is *about* at a glance, without wading through a firehose of individual articles.
-
----
-
-## Features
-
-- **Automated Ingestion:** Pulls articles from RSS feeds on a schedule or on‑demand.
-- **Topic Clustering:** Groups related articles into topic clusters using TF‑IDF vectorisation and cosine similarity.
-- **Interactive Timeline:** Displays clusters as horizontal Gantt‑style bars – width = time span, height = article count.
-- **Source Filtering:** Toggle between BBC, NPR, The Guardian (and others) to focus on specific outlets.
-- **Cluster Detail:** Click any cluster to see a list of all articles, their summaries, and publication times.
-- **Manual Refresh:** Trigger a fresh scrape + clustering run with a single button, with live job status polling.
 
 ---
 
-## Architecture Overview
-
-The project is organised as a monorepo with three independent services:
+## 📁 Project Structure
 
 ```
 news-pulse/
-├── backend/          # Node.js + Fastify API (REST + job worker)
-├── scraper/          # Python 3 RSS fetcher, body extractor, and clustering pipeline
-├── frontend/         # Next.js 14 (App Router) UI
-└── docs/             # Architecture decisions, API contract, database design
+├── backend/                  # Node.js + Fastify REST API
+│   ├── generated/            # Prisma Client (auto‑generated)
+│   ├── prisma/               # Database schema & migrations
+│   ├── src/                  # Application source
+│   │   ├── lib/              # Prisma client, env config
+│   │   ├── plugins/          # Fastify plugins (CORS, Swagger, etc.)
+│   │   ├── routes/           # API route handlers
+│   │   ├── services/         # Business logic
+│   │   ├── utils/            # Error handling, etc.
+│   │   └── workers/          # Job worker (runs pending ingest jobs)
+│   ├── .dockerignore
+│   ├── .env                  # Environment variables (not committed)
+│   ├── .gitignore
+│   ├── Dockerfile            # Multi‑stage container build
+│   ├── package.json
+│   ├── package-lock.json
+│   ├── prisma.config.ts
+│   └── tsconfig.json
+│
+├── scraper/                  # Python RSS ingestion & topic clustering
+│   ├── __pycache__/
+│   ├── venv/                 # Python virtual environment (local only)
+│   ├── __init__.py
+│   ├── article_extractor.py  # Full‑text extraction via trafilatura
+│   ├── clustering.py         # TF‑IDF + cosine similarity clustering
+│   ├── config.py             # Feeds, threshold, DB URL
+│   ├── db_writer.py          # Database operations
+│   ├── deduplicator.py       # Duplicate detection
+│   ├── main.py               # Entry point
+│   ├── requirements.txt      # Python dependencies
+│   ├── rss_fetcher.py        # Feed parsing (feedparser)
+│   └── utils.py              # Helpers (hashing, date parsing, etc.)
+│
+├── frontend/                 # Next.js 14 (App Router) UI
+│   ├── .next/                # Build output
+│   ├── node_modules/
+│   ├── src/
+│   │   ├── app/              # Pages, layout, globals
+│   │   ├── components/       # React components (timeline, clusters, UI)
+│   │   ├── hooks/            # Custom hooks (polling, infinite scroll)
+│   │   ├── lib/              # API client, types, utilities
+│   │   └── types/            # Shared TypeScript types
+│   ├── .env.example          # Environment variables template
+│   ├── .env.local            # Local env (gitignored)
+│   ├── next-env.d.ts
+│   ├── next.config.js        # Webpack alias + Next.js config
+│   ├── package.json
+│   ├── package-lock.json
+│   ├── postcss.config.js
+│   ├── README.md             # Frontend‑specific readme
+│   ├── tailwind.config.js
+│   └── tsconfig.json
+│
+├── docs/                     # Extended documentation (optional)
+│   ├── api/
+│   ├── architecture-decisions/
+│   ├── database-design/
+│   ├── domain/
+│   ├── frontend/
+│   └── scraper/
+│
+├── .gitignore
+├── Combine_all_md.py         # Helper script (project documentation aggregation)
+├── README.md                 # This file
+└── Xpo_Tech_Candidate_Assessment.docx.pdf
 ```
 
-- **Backend (`/backend`)** – Exposes REST endpoints (`/clusters`, `/timeline`, `/ingest/trigger`, …), manages the PostgreSQL database via Prisma, and runs a background worker that spawns the Python scraper when an ingest job is triggered.
-- **Scraper (`/scraper`)** – A self‑contained Python script that:
-  - Fetches RSS feeds (`feedparser`)
-  - Extracts full article bodies (`trafilatura`)
-  - Deduplicates by URL hash
-  - Runs TF‑IDF + cosine similarity (`scikit‑learn`) to group articles into clusters
-  - Writes new articles and clusters back to the database
-- **Frontend (`/frontend`)** – A Next.js 14 application that displays the timeline, source filters, refresh button, and cluster detail modal. It communicates with the backend API and polls for job status during refreshes.
+---
 
-The backend and frontend are Node.js services; the scraper runs as a separate Python process (spawned by the backend when a job is triggered).
+## 🏗️ Architecture Overview
+
+1. **Python Scraper**  
+   - Fetches RSS feeds from BBC, NPR, and The Guardian.  
+   - Extracts full article body using `trafilatura`.  
+   - Deduplicates articles (URL hash) to avoid re‑insertion on repeated runs.  
+   - Groups articles into topics using **TF‑IDF + cosine similarity** (threshold 0.25).  
+   - Stores clusters and articles in a shared PostgreSQL database.
+
+2. **Node.js Backend**  
+   - REST API built with Fastify.  
+   - Exposes endpoints for timeline, cluster details, and ingest control.  
+   - Triggers the scraper as a child process when `POST /ingest/trigger` is called.  
+   - Uses **Prisma ORM** with `@prisma/adapter-pg` and a connection pool.  
+   - Manages job status (`pending` → `running` → `completed/failed`) with a background worker.
+
+3. **Next.js Frontend**  
+   - Interactive Gantt‑style timeline (each cluster spans its earliest‑to‑latest article).  
+   - Source filter, search, time‑range selector.  
+   - Cluster detail modal with article list and source breakdown.  
+   - “Refresh data” button triggers an ingest job and polls for completion.
+
+All components are deployed on **Render** (backend via Docker, frontend as Node service, PostgreSQL as managed database).
 
 ---
 
-## Technology Stack
+## 🔧 Topic Grouping Approach
 
-| Layer | Tools |
-|-------|-------|
-| **Backend** | Node.js (v20+), Fastify, Prisma ORM, PostgreSQL, `dotenv`, `bcrypt` (optional) |
-| **Scraper** | Python 3.11+, `feedparser`, `trafilatura`, `scikit-learn`, `psycopg2-binary` |
-| **Frontend** | Next.js 14 (App Router), React, TypeScript, Tailwind CSS |
-| **Database** | PostgreSQL 15 (local or managed) |
-| **Deployment** | Render (Web Services + Cron Job + PostgreSQL) or any Docker‑compatible host |
+We use **TF‑IDF vectorisation** + **cosine similarity** with a greedy clustering algorithm (`scraper/clustering.py`).
 
----
-
-## Topic Grouping Approach
-
-We use **TF‑IDF vectorisation + cosine similarity** to group articles into topics:
-
-1. Combine each article’s `headline` and `summary` into a single text field.
-2. Normalise: lowercase, remove stopwords, strip punctuation.
-3. Vectorise using `TfidfVectorizer` (`max_features=5000`, `ngram_range=(1,2)`, `min_df=1`).
-4. Compute the pairwise cosine similarity matrix.
-5. Apply a similarity threshold: articles with similarity ≥ **0.25** are grouped into the same cluster.
-6. The cluster label is derived from the top 3–5 TF‑IDF terms with the highest average weight in the cluster.
-
-**Why 0.25?**  
-News articles on the same topic typically show cosine similarities between 0.20 and 0.40 on headline+summary text. Below 0.20 is mostly noise; above 0.40 is near‑duplicate. A threshold of 0.25 gives a good balance between recall and precision.
-
-**Limitations:**
-- **Vocabulary mismatch:** Articles that use different terms for the same concept (e.g., “ceasefire” vs “peace deal”) may not cluster together.
-- **Short text:** Headlines and summaries are relatively short, which can reduce the effectiveness of TF‑IDF.
-- **O(n²) memory:** The similarity matrix is computed pairwise; for large numbers of articles (e.g., >10,000), memory usage becomes a bottleneck. With our current volume (~200–300 articles per run) this is not a problem.
-
-The threshold and pipeline are configurable in the scraper’s environment variables.
+- **Why**: No external NLP models are required; the approach is deterministic, interpretable, and works well for short‑text (headline + summary) clustering.
+- **Parameter**: Similarity threshold = `0.25` (configurable via `CLUSTER_SIMILARITY_THRESHOLD` env var). This was chosen empirically – it yields coherent clusters without excessive merging.
+- **Labeling**: The top 3 TF‑IDF terms (by aggregate score) form the cluster label.
+- **Limitation**: A single fixed threshold may not suit all topics; some broad stories (e.g., “Ukraine war”) could be split into sub‑clusters if the threshold is too high.
 
 ---
 
-## News Sources
+## 📡 News Sources
 
-The scraper currently pulls from the following RSS feeds:
+The scraper uses three public RSS feeds (defined in `scraper/config.py`):
 
-| Source | RSS Feed URL |
-|--------|--------------|
-| BBC News | `http://feeds.bbci.co.uk/news/rss.xml` |
-| NPR | `https://feeds.npr.org/1001/rss.xml` |
-| The Guardian (World) | `https://www.theguardian.com/world/rss` |
+- **BBC News** – `http://feeds.bbci.co.uk/news/rss.xml`
+- **NPR** – `https://feeds.npr.org/1001/rss.xml`
+- **The Guardian** – `https://www.theguardian.com/world/rss`
 
-You can add or modify feeds by editing `scraper/config.py` (the `FEEDS` list).
+These outlets provide diverse content and varying RSS structures, allowing us to test the ingestion resilience.
 
 ---
 
-## Setup Instructions
+## 🧪 Running Locally
 
 ### Prerequisites
+- Python 3.9+
+- Node.js 20+
+- PostgreSQL (local or Docker)
 
-- **Node.js** (v20 or later)
-- **npm** or **yarn**
-- **Python 3.11+** (with `pip`)
-- **PostgreSQL 15** (running locally or remotely)
-
-### 1. Clone the repository
+### 1. Clone & Install Dependencies
 
 ```bash
-git clone https://github.com/your-username/news-pulse.git
+git clone https://github.com/uv-goswami/news-pulse.git
 cd news-pulse
 ```
 
-### 2. Backend
+### 2. Set Up the Scraper
 
 ```bash
-cd backend
-cp .env.example .env   # (if provided) or create one with the required variables
-npm install
-npx prisma migrate dev   # run migrations
-npx prisma generate      # generate Prisma client
-```
-
-**Required environment variables (backend):**
-
-```
-DATABASE_URL=postgresql://user:pass@localhost:5432/news_pulse
-PORT=3001
-FRONTEND_URL=http://localhost:3000
-SCRAPER_PATH=../scraper/main.py
-PYTHON_CMD=python3
-SCRAPER_TIMEOUT_MS=120000
-LOG_LEVEL=info
-```
-
-(If you use a virtual environment for Python, set `PYTHON_CMD` to the full path of the venv’s Python.)
-
-### 3. Scraper (Python)
-
-```bash
-cd ../scraper
+cd scraper
 python3 -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
+source venv/bin/activate   # or `venv\Scripts\activate` on Windows
 pip install -r requirements.txt
+cp .env.example .env       # adjust DATABASE_URL if needed
 ```
 
-**Required environment variables (scraper):**
+### 3. Set Up the Backend
 
+```bash
+cd ../backend
+npm install
+cp .env.example .env       # set DATABASE_URL, FRONTEND_URL, etc.
+npx prisma migrate dev     # apply schema and generate client
+npm run dev                # starts on http://localhost:3001
 ```
-DATABASE_URL=postgresql://user:pass@localhost:5432/news_pulse
-LOG_LEVEL=INFO
-CLUSTER_SIMILARITY_THRESHOLD=0.25
-MAX_ARTICLES_PER_FEED=50
-ARTICLE_FETCH_TIMEOUT=10
-```
 
-(These are read from `.env` in the `scraper/` directory; copy `.env.example` if provided.)
-
-### 4. Frontend
+### 4. Set Up the Frontend
 
 ```bash
 cd ../frontend
-cp .env.example .env   # or create it
 npm install
-```
-
-**Required environment variable (frontend):**
-
-```
-NEXT_PUBLIC_API_URL=http://localhost:3001
-```
-
-### 5. Run the services (development)
-
-**Backend:**
-
-```bash
-cd backend
-npm run dev
-```
-
-**Frontend:**
-
-```bash
-cd frontend
-npm run dev
-```
-
-The frontend will be available at `http://localhost:3000`, the backend at `http://localhost:3001`.
-
-### 6. Trigger a manual scrape
-
-Visit the frontend and click the **Refresh** button – the backend will spawn the Python scraper, and the UI will poll for updates.
-
-Alternatively, use `curl`:
-
-```bash
-curl -X POST http://localhost:3001/ingest/trigger -H "Content-Type: application/json" -d '{}'
+cp .env.example .env.local # set NEXT_PUBLIC_API_URL
+npm run dev                # starts on http://localhost:3000
 ```
 
 ---
 
-## Deployment
+## 📬 API Endpoints
 
-We recommend deploying on **Render**:
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET`  | `/health` | Liveness check |
+| `GET`  | `/health/ready` | Readiness (DB connectivity) |
+| `GET`  | `/timeline` | Clusters formatted for plotting (supports `?source=...`, `?from=...`, `?to=...`, `?minArticles=...`) |
+| `GET`  | `/clusters` | Paginated cluster list (supports `?source=...`, `?from=...`, `?to=...`, `?page=...`, `?limit=...`) |
+| `GET`  | `/clusters/:id` | Full cluster detail (articles ordered chronologically) |
+| `POST` | `/ingest/trigger` | Start a new ingest job; returns `jobId`. Returns `409` if a job is already running. |
+| `GET`  | `/ingest/status/:jobId` | Poll job status (`pending`, `running`, `completed`, `failed`) with metadata |
 
-- **Backend:** Render Web Service (Node.js) – set environment variables in the dashboard.
-- **Frontend:** Render Static Site or Web Service (Next.js) – set `NEXT_PUBLIC_API_URL`.
-- **Scraper:** Render Cron Job – runs `python scraper/main.py` on a schedule (e.g., every hour) or use the backend’s `/ingest/trigger` endpoint with an external cron service like cron-job.org.
-- **Database:** Render PostgreSQL (managed) – use the provided connection URL.
-
-Environment variables for each service must be set in Render’s dashboard – never commit secrets.
-
----
-
-## API Documentation
-
-Once the backend is running, interactive Swagger UI is available at:
-
-```
-http://localhost:3001/docs
-```
-
-The full API contract is documented in `docs/api/api-contract.md`.
+Detailed OpenAPI documentation is available at the `/docs` route.
 
 ---
 
-## License
+## 🌐 Deployment
 
-This project is open‑source and available under the [MIT License].
+All services are deployed on **Render**:
+
+- **Backend**: Docker‑based web service (Dockerfile in `/backend`).  
+  - Runs `prisma migrate deploy` on startup.  
+  - Environment variables: `DATABASE_URL`, `FRONTEND_URL`, `SCRAPER_PATH`, `PYTHON_CMD`, etc.
+
+- **Frontend**: Node web service (root = `/frontend`).  
+  - Build command: `npm install && npm run build`  
+  - Start command: `npm start`  
+  - Environment variable: `NEXT_PUBLIC_API_URL`
+
+- **Database**: Render PostgreSQL (internal URL).  
+  - The backend connects via the `DATABASE_URL` variable.
+
+The scraper is **not** a separate service; it is triggered on‑demand by the backend as a subprocess. The Docker image includes both Node.js and Python, so the subprocess can run inside the same container.
+
+---
+
+## 🔮 Future Improvements
+
+- **Dynamic threshold** – adapt the similarity threshold per cluster or per source.
+- **Cross‑source story merging** – link clusters across different outlets using named entity recognition or embeddings.
+- **WebSocket / SSE** – push live timeline updates without manual polling.
+- **Full‑text search** – enable searching across articles and clusters.
+
+---
+
+## 📄 License & Acknowledgements
+
+This project was built as part of an internship assessment for **XPONENTIUM INDIA**.  
+All code is provided for evaluation purposes only.
+
+
