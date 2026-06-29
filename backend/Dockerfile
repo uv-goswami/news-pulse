@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y \
     python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory to /app/backend (we'll copy both backend and scraper)
+# Set working directory to /app/backend
 WORKDIR /app/backend
 
 # Copy backend package files and install ALL dependencies (including dev for build)
@@ -28,7 +28,7 @@ RUN pip3 install --no-cache-dir -r scraper/requirements.txt
 # Back to backend directory
 WORKDIR /app/backend
 
-# Set a dummy DATABASE_URL for Prisma Client generation (does not require a real DB)
+# Set a dummy DATABASE_URL for Prisma Client generation
 ENV DATABASE_URL=postgresql://dummy:dummy@localhost:5432/dummy
 
 # Generate Prisma Client
@@ -37,11 +37,14 @@ RUN npx prisma generate
 # Build TypeScript
 RUN npm run build
 
+# Verify dist directory exists (helps debug)
+RUN ls -la dist
+
 # Remove dev dependencies (keep prisma because it's now in dependencies)
 RUN npm prune --omit=dev
 
 # Expose the port
 EXPOSE 3001
 
-# Start the server (migrations run inside the start script with the real DATABASE_URL from Render)
-CMD ["npm", "start"]
+# Start the server: run migrations, then start with absolute path
+CMD ["sh", "-c", "npm run prisma:deploy && node /app/backend/dist/server.js"]
